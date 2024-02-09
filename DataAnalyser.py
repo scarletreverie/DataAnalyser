@@ -1,8 +1,32 @@
 import csv
+import math
 import time
+
+POPULATION_SAMPLE_SIZE = 10
+
+attackingFeatures = ["Goals", "Assists", "Shots", "Shots on Target", "Crosses", "Interceptions"]
+statIndices = {"Minutes Played": 1, "Goals": 2, "Assists": 3, "Shots on Target": 5, "Crosses": 11, "Tackles Won": 12, "Interceptions": 13, "Position": 14}
 
 fileName = input("Enter the name of the data file: ")
 
+def standardDeviation(sampleArray):
+    
+    sampleMean = 0
+    sampleSum = 0
+    for i in range(len(sampleArray)):
+        sampleSum += float(sampleArray[i])
+
+    sampleMean = sampleSum/len(sampleArray)
+
+    variance = 0
+    distanceSum = 0
+    for i in range(len(sampleArray)):
+        distanceSum += (sampleArray[i] - sampleMean)**2
+
+    stdDeviation = math.sqrt(distanceSum/(len(sampleArray)-1))
+    return stdDeviation
+        
+        
 with open(fileName, "r") as soccerDataFile:
 
     dataReader = csv.reader(soccerDataFile)
@@ -63,64 +87,73 @@ with open(fileName, "r") as soccerDataFile:
                 if(len(lastResults) < numberOfResults):
                     lastResults.append(teamResult)
 
-        def featuresPastXGames(team, matchDate, feature, numberOfResults):
+    def featureAvgsPastXGames(team, matchDate, feature, numberOfResults):
 
-            featureArray = []
-            statSum = 0
-            numberOfStats = 0
-            totalMinutesPlayed = 0
-            statIndices = {"Minutes Played": 1, "Goals": 2, "Assists": 3, "Shots on Target": 5, "Crosses": 11, "Tackles Won": 12, "Interceptions": 13, "Position": 14}
-            readingFromMatch = True
-            
-            for line in enumerate(dataReader):
-                if (line[0] == "Date"):
-                    readingFromMatch = False
-                    
-                if ((line[2] == team or line[3] == team) and line[0] != matchDate):
-                    readingFromMatch = True
-                    
-                if (readingFromMatch):
-                    if((feature == "Shots on Target") and (line[statIndices["Position"]][0] == "a")):
-                        statSum += int(line[statIndices[feature]])
-                        numberOfStats += 1
-                        totalMinutesPlayed += int(line[statIndices["Minutes Played"]])
-                if ((line[2] == team or line[3] == team) and line[0] == matchDate):
-                    return featureArray
-
-            avgPerPlayerPerMinute = (statSum/numberOfStats)/totalMinutesPlayed
+        featureArray = []
+        statSum = 0
+        numberOfStats = 0
+        totalMinutesPlayed = 0
+        readingFromMatch = False
+        readingTeamStats = False
+        
+        for i, line in enumerate(dataReader):
+            if (line[0] == "Date" and readingFromMatch):
+                avgPerPlayerPerMinute = ((90*statSum)/totalMinutesPlayed**2)
+                if(len(featureArray) == POPULATION_SAMPLE_SIZE):
+                    featureArray.pop(0)
+                featureArray.append(avgPerPlayerPerMinute)
+                statSum = 0
+                totalMinutesPlayed = 0
+                readingFromMatch = False
                 
-        #Work out how many standard deviations the team is above or below for features on average over their past X games
-        #sqrt((sample-mean)^2/(n-1))
-        #Work out an array of features conceded by opponent in their last X games
-        def getAverageStandardDeviationLastXResults(team, matchDate, feature, numberOfResults):
-
-            lastResults = []
-            statSum = 0
-            numberOfStats = 0
-            totalMinutesPlayed = 0
-            statIndices = {"Minutes Played": 1, "Goals": 2, "Assists": 3, "Shots on Target": 5, "Crosses": 11, "Tackles Won": 12, "Interceptions": 13, "Position": 14}
-            readingFromMatch = True
-            for line in enumerate(dataReader):
-                if (line[0] == "Date"):
-                    readingFromMatch = False
+            try:
                 if (line[2] == team or line[3] == team):
                     readingFromMatch = True
-                    if(readingFromMatch):
-                        try:
-                            if(feature == "Shots on Target"):
-                                #Player positions are stored in the dataset according to a code where the first letter indicates attack, centre, or defence
-                                if(line[statIndices["Position"]][0] == "a"):
-                                    statSum += int(line[statIndices[feature]])
-                                    numberOfStats += 1
-                                    totalMinutesPlayed += int(line[statIndices["Minutes Played"]])                              
+            except IndexError:
+                pass
 
-            #The feature's average per player per minute
-            avgPerPlayerPerMinute = (statSum/numberOfStats)/totalMinutesPlayed
-            
-            featureStandardDeviation
-                    
-                    
-                    
+            if (readingFromMatch):
+                try:
+                    if ((line[2] == team or line[3] == team) and line[0] == matchDate):
+                        return featureArray
+                    if(readingTeamStats):
+                        if((feature in attackingFeatures) and (line[statIndices["Position"]][0] == "a")):
+                            statSum += int(line[statIndices[feature]])
+                            totalMinutesPlayed += int(line[statIndices["Minutes Played"]])
+                except IndexError:
+                    pass
+                if(readingTeamStats and len(line) < 2):
+                    readingTeamStats = False
+                if(line[0] == team):
+                    readingTeamStats = True
                 
-                
-    getAverageStandardDeviationLastXResults("Central Coast Mariners", "03/02/2024", "Shots on Target", 5))
+    #Work out how many standard deviations the team is above or below for features on average over their past X games
+    #sqrt((sample-mean)^2/(n-1))
+    #Work out an array of features conceded by opponent in their last X games
+    def getAverageStandardDeviationLastXResults(team, matchDate, feature, numberOfResults):
+
+        lastResults = []
+        statSum = 0
+        numberOfStats = 0
+        totalMinutesPlayed = 0     
+        readingFromMatch = True
+        for line in enumerate(dataReader):
+            if (line[0] == "Date"):
+                readingFromMatch = False
+            if (line[2] == team or line[3] == team):
+                readingFromMatch = True
+                if(readingFromMatch):
+                    try:
+                        if(feature == "Shots on Target"):
+                            #Player positions are stored in the dataset according to a code where the first letter indicates attack, centre, or defence
+                            if(line[statIndices["Position"]][0] == "a"):
+                                statSum += int(line[statIndices[feature]])
+                                numberOfStats += 1
+                                totalMinutesPlayed += int(line[statIndices["Minutes Played"]])
+                    except:
+                        pass
+
+        #The feature's average per player per minute
+        avgPerPlayerPerMinute = (statSum/numberOfStats)/totalMinutesPlayed
+
+    print(standardDeviation(featureAvgsPastXGames("Central Coast Mariners", "03/02/2024", "Shots on Target", 5)))
