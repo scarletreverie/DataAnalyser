@@ -1,11 +1,16 @@
 import csv
+import numpy as np
 import math
+import matplotlib.pyplot as plt
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 import time
 
-POPULATION_SAMPLE_SIZE = 10
+POPULATION_SAMPLE_SIZE = 20
 
-attackingFeatures = ["Goals", "Assists", "Shots", "Shots on Target", "Crosses", "Interceptions"]
+attackingFeatures = ["Goals", "Assists", "Shots", "Shots on Target", "Crosses", "Tackles Won", "Interceptions"]
 statIndices = {"Minutes Played": 1, "Goals": 2, "Assists": 3, "Shots on Target": 5, "Crosses": 11, "Tackles Won": 12, "Interceptions": 13, "Position": 14}
+teams = ["Adelaide United", "Brisbane Roar", "Central Coast Mariners", "Macarthur FC", "Newcastle Jets", "Melbourne City", "Melbourne Victory", "Perth Glory", "Sydney FC", "Wellington Phoenix", "Western Sydney Wanderers", "Western United"]
 
 fileName = input("Enter the name of the data file: ")
 
@@ -15,7 +20,6 @@ def standardDeviation(sampleArray):
     sampleSum = 0
     for i in range(len(sampleArray)):
         sampleSum += float(sampleArray[i])
-
     sampleMean = sampleSum/len(sampleArray)
 
     variance = 0
@@ -26,16 +30,99 @@ def standardDeviation(sampleArray):
     stdDeviation = math.sqrt(distanceSum/(len(sampleArray)-1))
     return stdDeviation
         
+def median(sampleArray):
+    sampleArray.sort()
+    arrayLength = len(sampleArray)
+    if (arrayLength == 0):
+        raise Exception("Error: Cannot calculate median of empty array")
+    if (arrayLength == 1):
+        return sampleArray[0]
+    if (arrayLength == 2):
+        return (sampleArray[0] + sampleArray[1])/2
+    if (len(sampleArray) % 2 == 1):
+        return (sampleArray[int((arrayLength-1)/2)])
+    else:
+        return ((sampleArray[int(arrayLength/2)] + sampleArray[int(arrayLength/2-1)])/2)
+
+def outlierIndices(array1):
+    indices = []
+    for i in range(len(array1)):
+        if(abs(array1[i] - np.median(array1))/np.std(array1) > 1.5):
+            indices.append(i)
+    return indices
+
+#Point-biserial correlation
+def calculatePBC(array1, array2, showGraph = False, xTitle = "Default", yTitle = "Default"):
+    if (len(array1) != len(array2)):
+        raise Exception("Error: Cannot calculate R^2 for sample arrays of different lengths")
+
+    #deletionIndices = outlierIndices(array1)
+   # array1 = np.delete(array1, deletionIndices)
+  #  array2 = np.delete(array2, deletionIndices)
         
+    winSamples = []
+    nonWinSamples = []
+    
+    for i in range(len(array1)):
+        if (array2[i] == 0):
+            nonWinSamples.append(array1[i])
+        else:
+            winSamples.append(array1[i])
+
+    winSamples = np.array(winSamples)
+    nonWinSamples = np.array(nonWinSamples)
+
+    winSamplesMean = np.mean(winSamples)
+    nonWinSamplesMean = np.mean(nonWinSamples)
+    
+    sampleStdDeviation = np.std(np.concatenate((winSamples, nonWinSamples)))
+    
+    PBC = ((winSamplesMean - nonWinSamplesMean)/sampleStdDeviation)*(math.sqrt(((len(winSamples)*len(nonWinSamples))/((len(array1)+len(array2))**2))))
+    print(PBC)
+
+    if(showGraph):
+        plt.xlabel(xTitle)
+        plt.ylabel(yTitle)
+        plt.scatter(array2, array1, s=10, color ='b')
+        #plt.plot(X, yPredictions, color ='k')
+        plt.show()
+    
 with open(fileName, "r") as soccerDataFile:
 
-    dataReader = csv.reader(soccerDataFile)
-        
+    lines = soccerDataFile.read().splitlines()
+
+    data = list(csv.reader(lines))
+
+    def getLastMatchDate(team):
+        date = ""
+        for line in data:
+            try:
+                if (line[2] == team or line[3] == team):
+                    date = line[0]
+            except:
+                pass
+        return date
+    
+    def lastXMatchDates(team, matchDate, numberOfResults):
+        lastMatchDates = []
+        for line in data:
+            if (line[0] == matchDate):
+                return lastMatchDates
+            try:
+                if ((line[2] == team or line[3] == team) and line[0] != matchDate):
+                    if(len(lastMatchDates) == numberOfResults):
+                        lastMatchDates.pop(0)
+                    lastMatchDates.append(line[0])
+            except:
+                pass
+
+        raise Exception("Error obtaining last match dates.")
+    
     def lastXMatchResults(team, matchDate, numberOfResults):
 
         lastResults = []
         
-        for line in enumerate(dataReader):
+        for line in data:
             homeScore = 0
             awayScore = 0
             matchResult = ""
@@ -53,7 +140,6 @@ with open(fileName, "r") as soccerDataFile:
                     
             except ValueError:
                 if (line[8] != "Score" and line[8] != "Fouls Committed"):
-                    print(line[8])
                     print("An Error occurred extracting the score from line: " + str(i))
             
             except IndexError:
@@ -87,18 +173,18 @@ with open(fileName, "r") as soccerDataFile:
                 if(len(lastResults) < numberOfResults):
                     lastResults.append(teamResult)
 
-    def featureAvgsPastXGames(team, matchDate, feature, numberOfResults):
-
+    #Returns an array of the average results for a feature in each of the last X games of a team
+    def featureAvgsPastXGames(team, matchDate, feature):
+        
         featureArray = []
         statSum = 0
-        numberOfStats = 0
         totalMinutesPlayed = 0
         readingFromMatch = False
         readingTeamStats = False
         
-        for i, line in enumerate(dataReader):
+        for line in data:
             if (line[0] == "Date" and readingFromMatch):
-                avgPerPlayerPerMinute = ((90*statSum)/totalMinutesPlayed**2)
+                avgPerPlayerPerMinute = (90*statSum)/(totalMinutesPlayed**2)
                 if(len(featureArray) == POPULATION_SAMPLE_SIZE):
                     featureArray.pop(0)
                 featureArray.append(avgPerPlayerPerMinute)
@@ -127,33 +213,84 @@ with open(fileName, "r") as soccerDataFile:
                 if(line[0] == team):
                     readingTeamStats = True
                 
-    #Work out how many standard deviations the team is above or below for features on average over their past X games
-    #sqrt((sample-mean)^2/(n-1))
-    #Work out an array of features conceded by opponent in their last X games
-    def getAverageStandardDeviationLastXResults(team, matchDate, feature, numberOfResults):
+    #Returns the average amount of standard deviations above or below the average a team has
+    #managed for a feature in its past X games
+    def getMedianStandardDeviation(team, matchDate, feature):
 
-        lastResults = []
+        readingFromMatch = False
+        matchCounter = 0
+        specificMatchDate = ""
+        opposingTeam = ""
         statSum = 0
-        numberOfStats = 0
-        totalMinutesPlayed = 0     
-        readingFromMatch = True
-        for line in enumerate(dataReader):
-            if (line[0] == "Date"):
+        totalMinutesPlayed = 0
+        featureArray = []
+        opposingTeam = ""
+        readingTeamStats = False
+        
+        for line in data:
+            if (line[0] == "Date" and readingFromMatch and matchCounter > POPULATION_SAMPLE_SIZE):
+                stdDeviation = standardDeviation(featureAvgsPastXGames(opposingTeam, specificMatchDate, feature))
+                avgPerPlayerPerMinute = (90*statSum)/(totalMinutesPlayed**2)
+                teamStdDeviation = avgPerPlayerPerMinute/stdDeviation
+                if(len(featureArray) == POPULATION_SAMPLE_SIZE):
+                    featureArray.pop(0)
+                featureArray.append(teamStdDeviation)
+                statSum = 0
+                totalMinutesPlayed = 0
                 readingFromMatch = False
-            if (line[2] == team or line[3] == team):
-                readingFromMatch = True
-                if(readingFromMatch):
-                    try:
-                        if(feature == "Shots on Target"):
-                            #Player positions are stored in the dataset according to a code where the first letter indicates attack, centre, or defence
-                            if(line[statIndices["Position"]][0] == "a"):
-                                statSum += int(line[statIndices[feature]])
-                                numberOfStats += 1
-                                totalMinutesPlayed += int(line[statIndices["Minutes Played"]])
-                    except:
-                        pass
+            try:
+                if (line[2] == team or line[3] == team):
+                    matchCounter += 1
+                    readingFromMatch = True
+                    specificMatchDate = line[0]
+                    if (line[2] == team):
+                        opposingTeam = line[3]
+                    if (line[3] == team):
+                        opposingTeam = line[2]
+                    if (line[0] == matchDate):
+                        return median(featureArray)
+            except IndexError:
+                pass
+            if(readingFromMatch):
+                try:
+                    if(readingTeamStats):
+                        if((feature in attackingFeatures) and (line[statIndices["Position"]][0] == "a")):
+                            statSum += int(line[statIndices[feature]])
+                            totalMinutesPlayed += int(line[statIndices["Minutes Played"]])
+                except IndexError:
+                    pass
+                if(readingTeamStats and len(line) < 2):
+                    readingTeamStats = False
+                if(line[0] == team):
+                    readingTeamStats = True
+        raise Exception("Error obtaining median standard deviation for past games.")
+    
+    #Analyses correlation of feature with respect to wins
+    def correlateFeature(feature, numberOfResults):
+        for team in teams:
+            
+            date = getLastMatchDate(team)
+            
+            matchResults = []
+            
+            for i in lastXMatchResults(team, date, numberOfResults):
+                if (i == "win"):
+                    matchResults.append(1)
+                else:
+                    matchResults.append(0)
+                    
+            matchResults = np.array(matchResults)
+            
+            lastMatchDates = lastXMatchDates(team, date, numberOfResults)
 
-        #The feature's average per player per minute
-        avgPerPlayerPerMinute = (statSum/numberOfStats)/totalMinutesPlayed
+            featureArray = []
+            
+            for i in range(numberOfResults):
+                featureArray.append(getMedianStandardDeviation(team, lastMatchDates[i], feature))
 
-    print(standardDeviation(featureAvgsPastXGames("Central Coast Mariners", "03/02/2024", "Shots on Target", 5)))
+        featureArray = np.array(featureArray)
+        
+        calculatePBC(featureArray, matchResults, True, "Match Result (1 is a win)", "Median standard deviations of shots on target scored in past 15 games")
+
+    correlateFeature("Tackles Won", 15)
+    
