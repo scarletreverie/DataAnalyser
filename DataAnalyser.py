@@ -2,14 +2,12 @@ import csv
 import numpy as np
 import math
 import matplotlib.pyplot as plt
-from sklearn.linear_model import LinearRegression
-from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 import time
 
-POPULATION_SAMPLE_SIZE = 20
+POPULATION_SAMPLE_SIZE = 5
 
 attackingFeatures = ["Goals", "Assists", "Shots", "Shots on Target", "Crosses", "Tackles Won", "Interceptions"]
-statIndices = {"Minutes Played": 1, "Goals": 2, "Assists": 3, "Shots on Target": 5, "Crosses": 11, "Tackles Won": 12, "Interceptions": 13, "Position": 14}
+statIndices = {"Minutes Played": 1, "Goals": 2, "Assists": 3, "Shots": 4, "Shots on Target": 5, "Crosses": 11, "Tackles Won": 12, "Interceptions": 13, "Position": 14}
 teams = ["Adelaide United", "Brisbane Roar", "Central Coast Mariners", "Macarthur FC", "Newcastle Jets", "Melbourne City", "Melbourne Victory", "Perth Glory", "Sydney FC", "Wellington Phoenix", "Western Sydney Wanderers", "Western United"]
 
 fileName = input("Enter the name of the data file: ")
@@ -47,22 +45,22 @@ def median(sampleArray):
 def outlierIndices(array1):
     indices = []
     for i in range(len(array1)):
-        if(abs(array1[i] - np.median(array1))/np.std(array1) > 1.5):
+        if(abs(array1[i] - np.median(array1))/np.std(array1) > 2):
             indices.append(i)
     return indices
 
 #Point-biserial correlation
 def calculatePBC(array1, array2, showGraph = False, xTitle = "Default", yTitle = "Default"):
     if (len(array1) != len(array2)):
-        raise Exception("Error: Cannot calculate R^2 for sample arrays of different lengths")
+        raise Exception("Error: Cannot calculate PBC for sample arrays of different lengths")
 
-    #deletionIndices = outlierIndices(array1)
-   # array1 = np.delete(array1, deletionIndices)
-  #  array2 = np.delete(array2, deletionIndices)
-        
     winSamples = []
     nonWinSamples = []
-    
+
+    deletionIndices = outlierIndices(array1)
+    array1 = np.delete(array1, deletionIndices)
+    array2 = np.delete(array2, deletionIndices)
+  
     for i in range(len(array1)):
         if (array2[i] == 0):
             nonWinSamples.append(array1[i])
@@ -71,6 +69,11 @@ def calculatePBC(array1, array2, showGraph = False, xTitle = "Default", yTitle =
 
     winSamples = np.array(winSamples)
     nonWinSamples = np.array(nonWinSamples)
+    deletionIndicesWinSamples = outlierIndices(winSamples)
+    deletionIndicesNonWinSamples = outlierIndices(nonWinSamples)
+
+    winSamples = np.delete(winSamples, deletionIndicesWinSamples)
+    nonWinSamples = np.delete(nonWinSamples, deletionIndicesNonWinSamples)
 
     winSamplesMean = np.mean(winSamples)
     nonWinSamplesMean = np.mean(nonWinSamples)
@@ -78,13 +81,15 @@ def calculatePBC(array1, array2, showGraph = False, xTitle = "Default", yTitle =
     sampleStdDeviation = np.std(np.concatenate((winSamples, nonWinSamples)))
     
     PBC = ((winSamplesMean - nonWinSamplesMean)/sampleStdDeviation)*(math.sqrt(((len(winSamples)*len(nonWinSamples))/((len(array1)+len(array2))**2))))
+
     print(PBC)
 
     if(showGraph):
         plt.xlabel(xTitle)
         plt.ylabel(yTitle)
-        plt.scatter(array2, array1, s=10, color ='b')
-        #plt.plot(X, yPredictions, color ='k')
+        plt.boxplot([nonWinSamples, winSamples], labels=["Non win","Win"])
+        #plt.scatter(array2, array1, s=10, color ='b')
+        #plt.xticks([0,1])
         plt.show()
     
 with open(fileName, "r") as soccerDataFile:
@@ -103,7 +108,7 @@ with open(fileName, "r") as soccerDataFile:
                 pass
         return date
     
-    def lastXMatchDates(team, matchDate, numberOfResults):
+    def lastXMatchDates(team, matchDate, numberOfResults = POPULATION_SAMPLE_SIZE):
         lastMatchDates = []
         for line in data:
             if (line[0] == matchDate):
@@ -118,7 +123,7 @@ with open(fileName, "r") as soccerDataFile:
 
         raise Exception("Error obtaining last match dates.")
     
-    def lastXMatchResults(team, matchDate, numberOfResults):
+    def lastXMatchResults(team, matchDate, numberOfResults = POPULATION_SAMPLE_SIZE):
 
         lastResults = []
         
@@ -173,7 +178,7 @@ with open(fileName, "r") as soccerDataFile:
                 if(len(lastResults) < numberOfResults):
                     lastResults.append(teamResult)
 
-    #Returns an array of the average results for a feature in each of the last X games of a team
+    #Returns an array of the average results for a conceded feature in each of the last X games of a team
     def featureAvgsPastXGames(team, matchDate, feature):
         
         featureArray = []
@@ -210,7 +215,7 @@ with open(fileName, "r") as soccerDataFile:
                     pass
                 if(readingTeamStats and len(line) < 2):
                     readingTeamStats = False
-                if(line[0] == team):
+                if(line[0] in teams and line[0] != team):
                     readingTeamStats = True
                 
     #Returns the average amount of standard deviations above or below the average a team has
@@ -231,7 +236,14 @@ with open(fileName, "r") as soccerDataFile:
             if (line[0] == "Date" and readingFromMatch and matchCounter > POPULATION_SAMPLE_SIZE):
                 stdDeviation = standardDeviation(featureAvgsPastXGames(opposingTeam, specificMatchDate, feature))
                 avgPerPlayerPerMinute = (90*statSum)/(totalMinutesPlayed**2)
-                teamStdDeviation = avgPerPlayerPerMinute/stdDeviation
+
+                sampleMean = np.median(np.array(featureAvgsPastXGames(opposingTeam, specificMatchDate, feature)))
+                
+                try:
+                    teamStdDeviation = (avgPerPlayerPerMinute-sampleMean)/stdDeviation
+                except ZeroDivisionError:
+                    teamStdDeviation = (avgPerPlayerPerMinute-sampleMean)/0.001
+
                 if(len(featureArray) == POPULATION_SAMPLE_SIZE):
                     featureArray.pop(0)
                 featureArray.append(teamStdDeviation)
@@ -266,31 +278,25 @@ with open(fileName, "r") as soccerDataFile:
         raise Exception("Error obtaining median standard deviation for past games.")
     
     #Analyses correlation of feature with respect to wins
-    def correlateFeature(feature, numberOfResults):
+    def correlateFeature(feature):
+        featureArray = []
+        matchResults = []
         for team in teams:
+            lastMatchDate = getLastMatchDate(team)
             
-            date = getLastMatchDate(team)
-            
-            matchResults = []
-            
-            for i in lastXMatchResults(team, date, numberOfResults):
+            for i in lastXMatchResults(team, lastMatchDate):
                 if (i == "win"):
                     matchResults.append(1)
                 else:
                     matchResults.append(0)
                     
-            matchResults = np.array(matchResults)
             
-            lastMatchDates = lastXMatchDates(team, date, numberOfResults)
+            for date in lastXMatchDates(team, lastMatchDate):
+                featureArray.append(getMedianStandardDeviation(team, date, feature))
 
-            featureArray = []
-            
-            for i in range(numberOfResults):
-                featureArray.append(getMedianStandardDeviation(team, lastMatchDates[i], feature))
-
+        matchResults = np.array(matchResults)
         featureArray = np.array(featureArray)
         
-        calculatePBC(featureArray, matchResults, True, "Match Result (1 is a win)", "Median standard deviations of shots on target scored in past 15 games")
+        calculatePBC(featureArray, matchResults, True, "Match Result", "Median standard deviations of " + feature + " in past " + str(POPULATION_SAMPLE_SIZE) + " games.")
 
-    correlateFeature("Tackles Won", 15)
-    
+    correlateFeature("Goals")
